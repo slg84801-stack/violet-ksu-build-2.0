@@ -1,10 +1,10 @@
-name: Build Violet Kernel (Master Fix V2)
+name: Build Violet Kernel (Python2 Legacy Fix)
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04 # 20.04 में Python 2 आसानी से मिल जाता है
     steps:
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
@@ -16,16 +16,16 @@ jobs:
       - name: Setup Build Environment
         run: |
           sudo apt-get update
-          # Python2 हटा दिया है, सिर्फ ज़रूरी चीज़ें रखी हैं
-          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev git curl wget zip libncurses5-dev python3
+          # Python 2 और ज़रूरी टूल्स इंस्टॉल करना
+          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev git curl wget zip libncurses5-dev python2
+          # Python 2 को डिफ़ॉल्ट बनाना ताकि 'TypeError' न आए
+          sudo ln -sf /usr/bin/python2 /usr/bin/python
           
-          # yylloc और Python path फिक्स
+          # yylloc fix
           sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/' scripts/dtc/dtc-lexer.lex.c_shipped
           sed -i 's/KBUILD_CFLAGS   += $(call cc-option,-fno-PIE)/KBUILD_CFLAGS   += $(call cc-option,-fno-PIE) -fcommon/' Makefile
-          # पुरानी स्क्रिप्ट्स को Python 3 इस्तेमाल करने के लिए फोर्स करना
-          sudo ln -sf /usr/bin/python3 /usr/bin/python
 
-      - name: Download Prebuilt Toolchain (Eva GCC)
+      - name: Download Toolchain (Eva GCC)
         run: |
           git clone https://github.com/mvaisakh/gcc-arm64.git --depth=1 gcc64
           git clone https://github.com/mvaisakh/gcc-arm.git --depth=1 gcc32
@@ -33,7 +33,6 @@ jobs:
       - name: Integrate KernelSU
         run: |
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
-          # Defconfig में KSU जोड़ना
           echo "CONFIG_KSU=y" >> arch/arm64/configs/violet_user_defconfig
           echo "CONFIG_OVERLAY_FS=y" >> arch/arm64/configs/violet_user_defconfig
 
@@ -46,7 +45,6 @@ jobs:
           export CROSS_COMPILE_ARM32=arm-eabi-
           
           make O=out violet_user_defconfig
-          # कंपाइल शुरू
           make -j$(nproc --all) O=out \
                       ARCH=arm64 \
                       CROSS_COMPILE=aarch64-elf- \
@@ -55,19 +53,12 @@ jobs:
       - name: Package with AnyKernel3
         run: |
           git clone https://github.com/osm0sis/AnyKernel3.git
-          if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
-            cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
-          elif [ -f out/arch/arm64/boot/Image.gz ]; then
-            cp out/arch/arm64/boot/Image.gz AnyKernel3/
-          else
-            cp out/arch/arm64/boot/Image AnyKernel3/
-          fi
+          [ -f out/arch/arm64/boot/Image.gz-dtb ] && cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/ || cp out/arch/arm64/boot/Image.gz AnyKernel3/
           cd AnyKernel3
           zip -r9 ../Violet-KernelSU-Final.zip * -x .git README.md
 
       - name: Upload Final Build
         uses: actions/upload-artifact@v4
         with:
-          name: Violet-Kernel-Working
+          name: Violet-Kernel-Success
           path: Violet-KernelSU-Final.zip
-          
