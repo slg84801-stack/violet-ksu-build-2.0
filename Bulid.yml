@@ -1,0 +1,53 @@
+name: Build Violet Kernel with KSU Next and SUSFS
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Kernel Source
+        uses: actions/checkout@v3
+        with:
+          repository: MiCode/Xiaomi_Kernel_OpenSource
+          ref: violet-q-oss
+          fetch-depth: 1
+
+      - name: Setup Build Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev clang lld llvm git
+
+      - name: Integrate KernelSU Next
+        run: |
+          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/main/kernel/setup.sh" | bash -
+
+      - name: Integrate SUSFS
+        run: |
+          # SUSFS के सोर्स को क्लोन करना
+          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android12-5.10 ../susfs
+          
+          # SUSFS पैच को कर्नल ट्री में कॉपी और अप्लाई करना
+          # नोट: violet-q-oss के लिए kernel version के हिसाब से पैच चुनना होगा
+          cp ../susfs/kernel/fs/* fs/
+          cp ../susfs/kernel/include/linux/susfs.h include/linux/
+          
+          # Defconfig में SUSFS इनेबल करना
+          echo "CONFIG_KSU_SUSFS=y" >> arch/arm64/configs/violet_user_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> arch/arm64/configs/violet_user_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> arch/arm64/configs/violet_user_defconfig
+
+      - name: Build Kernel
+        run: |
+          export ARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          make O=out violet_user_defconfig
+          # KernelSU Next और SUSFS के लिए जरूरी फ्लैग्स के साथ बिल्ड
+          make -j$(nproc --all) O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu-
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Violet-KSU-Next-SUSFS-Kernel
+          path: out/arch/arm64/boot/Image.gz-dtb
+          
