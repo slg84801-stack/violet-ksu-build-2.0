@@ -1,10 +1,10 @@
-name: Build Violet Kernel (Confirmed Fix)
+name: Build Violet Kernel (Master Fix)
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
@@ -16,14 +16,16 @@ jobs:
       - name: Setup Build Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev git curl wget zip gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi libncurses5-dev
+          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev git curl wget zip libncurses5-dev python3 python2
+          # yylloc fix (यह ज़रूरी है)
+          sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/' scripts/dtc/dtc-lexer.lex.c_shipped
+          sed -i 's/KBUILD_CFLAGS   += $(call cc-option,-fno-PIE)/KBUILD_CFLAGS   += $(call cc-option,-fno-PIE) -fcommon/' Makefile
 
-      - name: Download AOSP Clang
+      - name: Download Prebuilt Toolchain (Eva GCC)
         run: |
-          # यह वो Clang है जो सबसे स्टेबल है
-          mkdir clang
-          wget https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master/clang-r416183b.tar.gz -O clang.tar.gz
-          tar -C clang/ -xf clang.tar.gz
+          # पुराने कर्नल के लिए GCC सबसे बेस्ट होता है, Clang के फालतू एरर नहीं आते
+          git clone https://github.com/mvaisakh/gcc-arm64.git --depth=1 gcc64
+          git clone https://github.com/mvaisakh/gcc-arm.git --depth=1 gcc32
 
       - name: Integrate KernelSU
         run: |
@@ -31,42 +33,25 @@ jobs:
           echo "CONFIG_KSU=y" >> arch/arm64/configs/violet_user_defconfig
           echo "CONFIG_OVERLAY_FS=y" >> arch/arm64/configs/violet_user_defconfig
 
-      - name: Hard Fix for yylloc & Compiler
-        run: |
-          # yylloc error को जड़ से खत्म करने के लिए
-          sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/' scripts/dtc/dtc-lexer.lex.c_shipped
-          # Makefile में पुराने कोड को चलाने के लिए -fcommon जोड़ना
-          sed -i 's/KBUILD_CFLAGS   += $(call cc-option,-fno-PIE)/KBUILD_CFLAGS   += $(call cc-option,-fno-PIE) -fcommon/' Makefile
-
       - name: Build Kernel
         run: |
-          export PATH=$(pwd)/clang/bin:$PATH
+          export PATH=$(pwd)/gcc64/bin:$(pwd)/gcc32/bin:$PATH
           export ARCH=arm64
           export SUBARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          export CROSS_COMPILE=aarch64-elf-
+          export CROSS_COMPILE_ARM32=arm-eabi-
           
-          # 1. Config सेट करें
           make O=out violet_user_defconfig
-          
-          # 2. कंपाइल करें (सही flags के साथ ताकि -EL एरर न आये)
+          # GCC के साथ कंपाइल करें (इसमें 'incompatible' या 'lib64' का एरर कभी नहीं आता)
           make -j$(nproc --all) O=out \
                       ARCH=arm64 \
-                      CC=clang \
-                      CLANG_TRIPLE=aarch64-linux-gnu- \
-                      CROSS_COMPILE=aarch64-linux-gnu- \
-                      CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-                      LD=ld.lld \
-                      AR=llvm-ar \
-                      NM=llvm-nm \
-                      OBJCOPY=llvm-objcopy \
-                      OBJDUMP=llvm-objdump \
-                      STRIP=llvm-strip
+                      CROSS_COMPILE=aarch64-elf- \
+                      CROSS_COMPILE_ARM32=arm-eabi-
 
       - name: Package with AnyKernel3
         run: |
           git clone https://github.com/osm0sis/AnyKernel3.git
-          # चेक करना कि इमेज कहाँ बनी है और उसे कॉपी करना
+          # बिल्ड चेक
           if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
             cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
           elif [ -f out/arch/arm64/boot/Image.gz ]; then
@@ -77,9 +62,9 @@ jobs:
           cd AnyKernel3
           zip -r9 ../Violet-KernelSU-Final.zip * -x .git README.md
 
-      - name: Upload Kernel Zip
+      - name: Upload Final Build
         uses: actions/upload-artifact@v4
         with:
-          name: Violet-Final-Build
+          name: Violet-Kernel-Working
           path: Violet-KernelSU-Final.zip
           
