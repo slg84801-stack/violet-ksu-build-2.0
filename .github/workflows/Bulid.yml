@@ -1,13 +1,10 @@
-name: Build Violet Kernel (The Final Solution)
+name: Build Violet Kernel (Working Fix)
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    container:
-      # यह इमेज पुराने कर्नल बनाने के लिए बेस्ट है, इसमें Python 2 पहले से है
-      image: docker.io/lineageos/build-env:latest 
+    runs-on: ubuntu-20.04 # 20.04 में Python 2 का सपोर्ट बेहतर है
     steps:
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
@@ -16,12 +13,20 @@ jobs:
           ref: violet-q-oss
           fetch-depth: 1
 
-      - name: Fix yylloc Error
+      - name: Setup Environment & Python 2
         run: |
+          sudo apt-get update
+          # Python 2 को पुराने तरीके से फोर्स इंस्टॉल करना
+          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev git curl wget zip libncurses5-dev python2
+          
+          # सिस्टम को बताना कि 'python' कमांड का मतलब Python 2 है
+          sudo ln -sf /usr/bin/python2 /usr/bin/python
+          
+          # yylloc Error Fix
           sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/' scripts/dtc/dtc-lexer.lex.c_shipped
           sed -i 's/KBUILD_CFLAGS   += $(call cc-option,-fno-PIE)/KBUILD_CFLAGS   += $(call cc-option,-fno-PIE) -fcommon/' Makefile
 
-      - name: Download GCC Toolchain
+      - name: Download Toolchain (Eva GCC)
         run: |
           git clone https://github.com/mvaisakh/gcc-arm64.git --depth=1 gcc64
           git clone https://github.com/mvaisakh/gcc-arm.git --depth=1 gcc32
@@ -40,29 +45,23 @@ jobs:
           export CROSS_COMPILE=aarch64-elf-
           export CROSS_COMPILE_ARM32=arm-eabi-
           
-          # यहाँ हम कर्नल की अपनी Python का इस्तेमाल होने देंगे
+          # बिल्ड शुरू
           make O=out violet_user_defconfig
           make -j$(nproc --all) O=out \
                       ARCH=arm64 \
                       CROSS_COMPILE=aarch64-elf- \
                       CROSS_COMPILE_ARM32=arm-eabi-
 
-      - name: Package with AnyKernel3
+      - name: Package & Upload
         run: |
           git clone https://github.com/osm0sis/AnyKernel3.git
-          if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
-            cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
-          elif [ -f out/arch/arm64/boot/Image.gz ]; then
-            cp out/arch/arm64/boot/Image.gz AnyKernel3/
-          else
-            cp out/arch/arm64/boot/Image AnyKernel3/
-          fi
+          [ -f out/arch/arm64/boot/Image.gz-dtb ] && cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/ || cp out/arch/arm64/boot/Image.gz AnyKernel3/
           cd AnyKernel3
-          zip -r9 ../Violet-KSU-Final.zip * -x .git README.md
+          zip -r9 ../Violet-KernelSU-Success.zip * -x .git README.md
 
-      - name: Upload Final Kernel
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Violet-Final-Build
-          path: Violet-KSU-Final.zip
+          name: Violet-Kernel-Success
+          path: Violet-KernelSU-Success.zip
           
