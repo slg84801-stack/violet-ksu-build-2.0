@@ -1,4 +1,4 @@
-name: Build Violet Kernel (Master Fix)
+name: Build Violet Kernel (Master Fix V2)
 on:
   workflow_dispatch:
 
@@ -16,20 +16,24 @@ jobs:
       - name: Setup Build Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev git curl wget zip libncurses5-dev python3 python2
-          # yylloc fix (यह ज़रूरी है)
+          # Python2 हटा दिया है, सिर्फ ज़रूरी चीज़ें रखी हैं
+          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev git curl wget zip libncurses5-dev python3
+          
+          # yylloc और Python path फिक्स
           sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/' scripts/dtc/dtc-lexer.lex.c_shipped
           sed -i 's/KBUILD_CFLAGS   += $(call cc-option,-fno-PIE)/KBUILD_CFLAGS   += $(call cc-option,-fno-PIE) -fcommon/' Makefile
+          # पुरानी स्क्रिप्ट्स को Python 3 इस्तेमाल करने के लिए फोर्स करना
+          sudo ln -sf /usr/bin/python3 /usr/bin/python
 
       - name: Download Prebuilt Toolchain (Eva GCC)
         run: |
-          # पुराने कर्नल के लिए GCC सबसे बेस्ट होता है, Clang के फालतू एरर नहीं आते
           git clone https://github.com/mvaisakh/gcc-arm64.git --depth=1 gcc64
           git clone https://github.com/mvaisakh/gcc-arm.git --depth=1 gcc32
 
       - name: Integrate KernelSU
         run: |
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
+          # Defconfig में KSU जोड़ना
           echo "CONFIG_KSU=y" >> arch/arm64/configs/violet_user_defconfig
           echo "CONFIG_OVERLAY_FS=y" >> arch/arm64/configs/violet_user_defconfig
 
@@ -42,7 +46,7 @@ jobs:
           export CROSS_COMPILE_ARM32=arm-eabi-
           
           make O=out violet_user_defconfig
-          # GCC के साथ कंपाइल करें (इसमें 'incompatible' या 'lib64' का एरर कभी नहीं आता)
+          # कंपाइल शुरू
           make -j$(nproc --all) O=out \
                       ARCH=arm64 \
                       CROSS_COMPILE=aarch64-elf- \
@@ -51,7 +55,6 @@ jobs:
       - name: Package with AnyKernel3
         run: |
           git clone https://github.com/osm0sis/AnyKernel3.git
-          # बिल्ड चेक
           if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
             cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
           elif [ -f out/arch/arm64/boot/Image.gz ]; then
