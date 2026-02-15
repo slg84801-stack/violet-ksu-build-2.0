@@ -1,4 +1,4 @@
-name: Build Violet Kernel with KSU Next and SUSFS
+name: Build Violet Kernel with KSU Next, SUSFS and AnyKernel3
 on:
   workflow_dispatch:
 
@@ -7,7 +7,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Kernel Source
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: MiCode/Xiaomi_Kernel_OpenSource
           ref: violet-q-oss
@@ -16,7 +16,7 @@ jobs:
       - name: Setup Build Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev clang lld llvm git
+          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev clang lld llvm git curl wget zip
 
       - name: Integrate KernelSU Next
         run: |
@@ -24,15 +24,13 @@ jobs:
 
       - name: Integrate SUSFS
         run: |
-          # SUSFS के सोर्स को क्लोन करना
-          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android12-5.10 ../susfs
-          
-          # SUSFS पैच को कर्नल ट्री में कॉपी और अप्लाई करना
-          # नोट: violet-q-oss के लिए kernel version के हिसाब से पैच चुनना होगा
+          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b kernel-4.14 ../susfs
           cp ../susfs/kernel/fs/* fs/
           cp ../susfs/kernel/include/linux/susfs.h include/linux/
           
-          # Defconfig में SUSFS इनेबल करना
+          # Defconfig Update
+          echo "CONFIG_KSU=y" >> arch/arm64/configs/violet_user_defconfig
+          echo "CONFIG_KSU_NEXT=y" >> arch/arm64/configs/violet_user_defconfig
           echo "CONFIG_KSU_SUSFS=y" >> arch/arm64/configs/violet_user_defconfig
           echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> arch/arm64/configs/violet_user_defconfig
           echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> arch/arm64/configs/violet_user_defconfig
@@ -42,12 +40,18 @@ jobs:
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
           make O=out violet_user_defconfig
-          # KernelSU Next और SUSFS के लिए जरूरी फ्लैग्स के साथ बिल्ड
           make -j$(nproc --all) O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu-
 
-      - name: Upload Build Artifact
+      - name: Package with AnyKernel3
+        run: |
+          git clone https://github.com/osm0sis/AnyKernel3.git
+          cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
+          cd AnyKernel3
+          # Zip फ़ाइल बनाना
+          zip -r9 ../Violet-KSU-Next-SUSFS.zip * -x .git README.md
+
+      - name: Upload Flashable Kernel
         uses: actions/upload-artifact@v4
         with:
-          name: Violet-KSU-Next-SUSFS-Kernel
-          path: out/arch/arm64/boot/Image.gz-dtb
-          
+          name: Violet-Kernel-Flashable
+          path: Violet-KSU-Next-SUSFS.zip
