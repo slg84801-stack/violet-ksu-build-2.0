@@ -1,10 +1,10 @@
-name: Build Violet Kernel (Python2 Legacy Fix)
+name: Build Violet Kernel (The Ultimate Python2 Fix)
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-20.04 # 20.04 में Python 2 आसानी से मिल जाता है
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
@@ -13,15 +13,18 @@ jobs:
           ref: violet-q-oss
           fetch-depth: 1
 
-      - name: Setup Build Environment
+      - name: Setup Legacy Environment (Python 2 & Tools)
         run: |
           sudo apt-get update
-          # Python 2 और ज़रूरी टूल्स इंस्टॉल करना
+          # Python 2 को इंस्टॉल करने के लिए universe repository जोड़ना
+          sudo add-apt-repository universe
+          sudo apt-get update
           sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev git curl wget zip libncurses5-dev python2
-          # Python 2 को डिफ़ॉल्ट बनाना ताकि 'TypeError' न आए
+          
+          # Python 2 को डिफ़ॉल्ट 'python' कमांड बनाना
           sudo ln -sf /usr/bin/python2 /usr/bin/python
           
-          # yylloc fix
+          # yylloc और Makefile Fixes
           sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/' scripts/dtc/dtc-lexer.lex.c_shipped
           sed -i 's/KBUILD_CFLAGS   += $(call cc-option,-fno-PIE)/KBUILD_CFLAGS   += $(call cc-option,-fno-PIE) -fcommon/' Makefile
 
@@ -45,20 +48,22 @@ jobs:
           export CROSS_COMPILE_ARM32=arm-eabi-
           
           make O=out violet_user_defconfig
+          # कंपाइल करना (इसमें अब Python 2 एरर नहीं आएगा)
           make -j$(nproc --all) O=out \
                       ARCH=arm64 \
                       CROSS_COMPILE=aarch64-elf- \
                       CROSS_COMPILE_ARM32=arm-eabi-
 
-      - name: Package with AnyKernel3
+      - name: Package & Upload
         run: |
           git clone https://github.com/osm0sis/AnyKernel3.git
           [ -f out/arch/arm64/boot/Image.gz-dtb ] && cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/ || cp out/arch/arm64/boot/Image.gz AnyKernel3/
           cd AnyKernel3
-          zip -r9 ../Violet-KernelSU-Final.zip * -x .git README.md
+          zip -r9 ../Violet-KernelSU-Success.zip * -x .git README.md
 
-      - name: Upload Final Build
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Violet-Kernel-Success
-          path: Violet-KernelSU-Final.zip
+          name: Violet-Final-Zip
+          path: Violet-KernelSU-Success.zip
+          
