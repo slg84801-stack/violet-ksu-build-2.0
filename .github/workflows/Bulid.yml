@@ -1,4 +1,4 @@
-name: Build Violet Kernel with KSU and SUSFS
+name: Build Violet Kernel with KernelSU
 on:
   workflow_dispatch:
 
@@ -20,38 +20,26 @@ jobs:
 
       - name: Integrate KernelSU
         run: |
-          # आधिकारिक KernelSU को जोड़ने का सबसे सुरक्षित तरीका
+          # KernelSU का आधिकारिक तरीका
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
           
-      - name: Integrate SUSFS
-        run: |
-          # SUSFS के लिए 4.14 स्पेसिफिक ब्रांच
-          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b kernel-4.14 ../susfs
-          cp ../susfs/kernel/fs/* fs/
-          cp ../susfs/kernel/include/linux/susfs.h include/linux/
-          
-          # Defconfig में सेटिंग्स डालना
-          cat <<EOF >> arch/arm64/configs/violet_user_defconfig
-          CONFIG_KSU=y
-          CONFIG_KSU_SUSFS=y
-          CONFIG_KSU_SUSFS_SUS_PATH=y
-          CONFIG_KSU_SUSFS_SUS_MOUNT=y
-          CONFIG_OVERLAY_FS=y
-          EOF
+          # Defconfig में KSU और OverlayFS इनेबल करना
+          echo "CONFIG_KSU=y" >> arch/arm64/configs/violet_user_defconfig
+          echo "CONFIG_OVERLAY_FS=y" >> arch/arm64/configs/violet_user_defconfig
 
       - name: Build Kernel
         run: |
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
-          # Defconfig जनरेट करना
+          # कॉन्फ़िगरेशन तैयार करना
           make O=out violet_user_defconfig
-          # कंपाइल करना
+          # कंपाइलेशन शुरू (सभी CPU कोर्स का उपयोग करके)
           make -j$(nproc --all) O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu-
 
       - name: Package with AnyKernel3
         run: |
           git clone https://github.com/osm0sis/AnyKernel3.git
-          # चेक करना कि इमेज कहाँ बनी है
+          # बिल्ड इमेज को ढूंढ कर कॉपी करना
           if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
             cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
           elif [ -f out/arch/arm64/boot/Image.gz ]; then
@@ -60,11 +48,11 @@ jobs:
             cp out/arch/arm64/boot/Image AnyKernel3/
           fi
           cd AnyKernel3
-          zip -r9 ../Violet-Kernel-KSU-SUSFS.zip * -x .git README.md
+          zip -r9 ../Violet-KernelSU-Build.zip * -x .git README.md
 
-      - name: Upload Flashable Kernel
+      - name: Upload Kernel Zip
         uses: actions/upload-artifact@v4
         with:
-          name: Violet-Final-Zip
-          path: Violet-Kernel-KSU-SUSFS.zip
+          name: Violet-Kernel-KSU-Only
+          path: Violet-KernelSU-Build.zip
           
