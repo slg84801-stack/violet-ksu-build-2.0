@@ -1,10 +1,10 @@
-name: Build Violet Kernel with KernelSU (Final Fix)
+name: Build Violet Kernel (Final Working Fix)
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04 # पुराने कर्नल के लिए ज्यादा स्टेबल वर्जन
     steps:
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
@@ -16,7 +16,7 @@ jobs:
       - name: Setup Build Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev clang lld llvm git curl wget zip
+          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev clang lld llvm git curl wget zip gcc-aarch64-linux-gnu
 
       - name: Integrate KernelSU
         run: |
@@ -24,26 +24,44 @@ jobs:
           echo "CONFIG_KSU=y" >> arch/arm64/configs/violet_user_defconfig
           echo "CONFIG_OVERLAY_FS=y" >> arch/arm64/configs/violet_user_defconfig
 
-      - name: Fix yylloc and Makefile Errors
+      - name: Fix yylloc and Makefile (Hard Fix)
         run: |
-          # 'yylloc' मल्टीपल डेफिनिशन एरर को फिक्स करने के लिए पैच
+          # 'multiple definition of yylloc' एरर को खत्म करने के लिए
           sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/' scripts/dtc/dtc-lexer.lex.c_shipped
           
-          # Makefile में कंपाइलर फ्लैग्स को ठीक करना
+          # Makefile में कंपाइलर फ्लैग्स को पुराने स्टाइल के लिए फोर्स करना
           sed -i 's/KBUILD_CFLAGS   += $(call cc-option,-fno-PIE)/KBUILD_CFLAGS   += $(call cc-option,-fno-PIE) -fcommon/' Makefile
+          
+          # एक और संभावित जगह जहाँ yylloc एरर दे सकता है
+          find scripts/dtc/ -name "*.c" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
+
+      - name: Download Proton Clang (Stable Toolchain)
+        run: |
+          git clone https://github.com/kdrag0n/proton-clang.git --depth=1 proton-clang
 
       - name: Build Kernel
         run: |
+          export PATH=$(pwd)/proton-clang/bin:$PATH
           export ARCH=arm64
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           export CC=clang
           
-          # कॉन्फ़िगरेशन
+          # Config बनाना
           make O=out violet_user_defconfig
           
-          # कंपाइल (बिना -EL एरर के)
-          make -j$(nproc --all) O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu-
+          # कंपाइल करना (Proton Clang के साथ -EL एरर नहीं आएगा)
+          make -j$(nproc --all) O=out \
+                      ARCH=arm64 \
+                      CC=clang \
+                      CROSS_COMPILE=aarch64-linux-gnu- \
+                      CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+                      AR=llvm-ar \
+                      NM=llvm-nm \
+                      OBJCOPY=llvm-objcopy \
+                      OBJDUMP=llvm-objdump \
+                      STRIP=llvm-strip
 
       - name: Package with AnyKernel3
         run: |
@@ -56,11 +74,11 @@ jobs:
             cp out/arch/arm64/boot/Image AnyKernel3/
           fi
           cd AnyKernel3
-          zip -r9 ../Violet-KernelSU-Fixed.zip * -x .git README.md
+          zip -r9 ../Violet-KernelSU-Final.zip * -x .git README.md
 
-      - name: Upload Kernel Zip
+      - name: Upload Flashable Kernel
         uses: actions/upload-artifact@v4
         with:
-          name: Violet-Kernel-Fixed
-          path: Violet-KernelSU-Fixed.zip
+          name: Violet-Kernel-Success
+          path: Violet-KernelSU-Final.zip
           
