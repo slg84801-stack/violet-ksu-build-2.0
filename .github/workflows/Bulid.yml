@@ -1,4 +1,4 @@
-name: Build Violet Kernel (The Ultimate Python2 Fix)
+name: Build Violet Kernel (Ultimate Python 2 Survival)
 on:
   workflow_dispatch:
 
@@ -13,15 +13,15 @@ jobs:
           ref: violet-q-oss
           fetch-depth: 1
 
-      - name: Setup Legacy Environment (Python 2 & Tools)
+      - name: Setup Environment & Manual Python 2
         run: |
           sudo apt-get update
-          # Python 2 को इंस्टॉल करने के लिए universe repository जोड़ना
-          sudo add-apt-repository universe
-          sudo apt-get update
-          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev git curl wget zip libncurses5-dev python2
+          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev git curl wget zip libncurses5-dev
           
-          # Python 2 को डिफ़ॉल्ट 'python' कमांड बनाना
+          # Python 2 को सीधे डाउनलोड करना क्योंकि APT में यह नहीं है
+          curl -fSL https://github.com/niess/python-appimage/releases/download/python2.7/python2.7-x86_64.AppImage -o python2
+          chmod +x python2
+          sudo mv python2 /usr/bin/python2
           sudo ln -sf /usr/bin/python2 /usr/bin/python
           
           # yylloc और Makefile Fixes
@@ -48,7 +48,7 @@ jobs:
           export CROSS_COMPILE_ARM32=arm-eabi-
           
           make O=out violet_user_defconfig
-          # कंपाइल करना (इसमें अब Python 2 एरर नहीं आएगा)
+          # अब Python 2 एरर नहीं आएगा क्योंकि हमने उसे मैन्युअली सेटअप कर दिया है
           make -j$(nproc --all) O=out \
                       ARCH=arm64 \
                       CROSS_COMPILE=aarch64-elf- \
