@@ -1,68 +1,87 @@
-name: Build Violet Kernel (The Final Final Fix)
+name: Build RyZeN Kernel + KSU Next
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
-      - name: Checkout Kernel Source
-        uses: actions/checkout@v4
-        with:
-          repository: MiCode/Xiaomi_Kernel_OpenSource
-          ref: violet-q-oss
-          fetch-depth: 1
+      - name: 1. Clone RyZeN Source
+        run: |
+          git clone --depth=1 https://github.com/karthik558/MsM-4.14-RyZeN.git kernel
 
-      - name: Setup Environment & Python 2
+      - name: 2. Install Build Essentials
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev git curl wget zip libncurses5-dev python2
-          
-          # Python 2 को डिफ़ॉल्ट बनाना
-          sudo ln -sf /usr/bin/python2 /usr/bin/python
-          
-          #           # Multiple definition of 'yylloc' एरर का इलाज
-          sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/' scripts/dtc/dtc-lexer.lex.c_shipped
-          sed -i 's/KBUILD_CFLAGS   += $(call cc-option,-fno-PIE)/KBUILD_CFLAGS   += $(call cc-option,-fno-PIE) -fcommon/' Makefile
-          
-          # Python 3 सिंटैक्स एरर को रोकने के लिए ज़बरदस्ती पैचिंग
-          find . -type f -name "*.py" -exec sed -i 's/print >> sys.stderr,/sys.stderr.write(/g' {} +
+          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev clang lld llvm zip curl wget gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
 
-      - name: Download Eva GCC Toolchain
+      - name: 3. Setup KernelSU Next
+        working-directory: kernel
         run: |
-          git clone https://github.com/mvaisakh/gcc-arm64.git --depth=1 gcc64
-          git clone https://github.com/mvaisakh/gcc-arm.git --depth=1 gcc32
+          # KernelSU Next Setup
+          git clone https://github.com/rifsxd/KernelSU-Next kernelsu_repo
+          cp -r kernelsu_repo/kernel drivers/kernelsu
+          
+          # Add to Build System
+          echo "obj-y += kernelsu/" >> drivers/Makefile
+          
+          # Force Enable KSU in defconfig (RyZeN name fix)
+          echo "CONFIG_KSU=y" >> arch/arm64/configs/violet_defconfig
+          echo "CONFIG_KSU_NEXT=y" >> arch/arm64/configs/violet_defconfig
 
-      - name: Integrate KernelSU
+      - name: 4. Set Toolchain (Proton Clang)
         run: |
-          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
-          echo "CONFIG_KSU=y" >> arch/arm64/configs/violet_user_defconfig
-          echo "CONFIG_OVERLAY_FS=y" >> arch/arm64/configs/violet_user_defconfig
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
 
-      - name: Build Kernel
+      - name: 5. Build Kernel (The Final Fix)
+        working-directory: kernel
         run: |
-          export PATH=$(pwd)/gcc64/bin:$(pwd)/gcc32/bin:$PATH
+          export PATH=$(pwd)/../clang/bin:$PATH
           export ARCH=arm64
           export SUBARCH=arm64
-          export CROSS_COMPILE=aarch64-elf-
-          export CROSS_COMPILE_ARM32=arm-eabi-
+          export KBUILD_BUILD_USER="Gemini"
+          export KBUILD_BUILD_HOST="RyZeN-Builder"
           
-          make O=out violet_user_defconfig
+          # Step A: Config generate karo
+          make O=out violet_defconfig
+          
+          # Step B: Loop bypass karne ke liye "yes" use karo
+          yes "" | make O=out oldconfig
+          
+          # Step C: Baaki bache sawalon ko default set karke headers banao
+          make O=out olddefconfig
+          make O=out prepare
+          
+          # Step D: Actual Build (Yahan se CC files shuru hongi)
           make -j$(nproc --all) O=out \
-                      ARCH=arm64 \
-                      CROSS_COMPILE=aarch64-elf- \
-                      CROSS_COMPILE_ARM32=arm-eabi-
+                      CC=clang \
+                      CROSS_COMPILE=aarch64-linux-gnu- \
+                      CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+                      AR=llvm-ar \
+                      NM=llvm-nm \
+                      OBJCOPY=llvm-objcopy \
+                      OBJDUMP=llvm-objdump \
+                      STRIP=llvm-strip \
+                      KCONFIG_NOSILENTUPDATE=1
 
-      - name: Package & Upload
+      - name: 6. Packaging AnyKernel3
         run: |
-          git clone https://github.com/osm0sis/AnyKernel3.git
-          [ -f out/arch/arm64/boot/Image.gz-dtb ] && cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/ || cp out/arch/arm64/boot/Image.gz AnyKernel3/
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3 AnyKernel3
+          # Find the image (RyZeN usually makes Image.gz-dtb)
+          if [ -f kernel/out/arch/arm64/boot/Image.gz-dtb ]; then
+            cp kernel/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
+          elif [ -f kernel/out/arch/arm64/boot/Image.gz ]; then
+            cp kernel/out/arch/arm64/boot/Image.gz AnyKernel3/
+          else
+            cp kernel/out/arch/arm64/boot/Image AnyKernel3/
+          fi
           cd AnyKernel3
-          zip -r9 ../Violet-KernelSU-Final.zip * -x .git README.md
+          sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
+          zip -r9 ../RyZeN-Violet-KSU-Next.zip *
 
-      - name: Upload Artifact
+      - name: 7. Upload Flashable Zip
         uses: actions/upload-artifact@v4
         with:
-          name: Violet-Final-Zip
-          path: Violet-KernelSU-Final.zip
+          name: RyZeN-Violet-KSU-Next
+          path: RyZeN-Violet-KSU-Next.zip
           
