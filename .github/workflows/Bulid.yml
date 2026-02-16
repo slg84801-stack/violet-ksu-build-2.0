@@ -14,7 +14,8 @@ jobs:
           sudo apt install -y git bc bison build-essential curl flex g++-multilib \
             gcc-multilib gnupg gperf imagemagick libncurses5-dev \
             libncurses-dev liblz4-tool libssl-dev libxml2 libxml2-utils \
-            lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev
+            lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev \
+            binutils-aarch64-linux-gnu
 
       - name: Clone MiCode violet kernel source
         run: |
@@ -33,6 +34,11 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git anykernel
 
+      - name: Clean previous builds
+        run: |
+          cd kernel
+          make mrproper || true
+
       - name: Build Violet kernel
         run: |
           cd kernel
@@ -45,7 +51,8 @@ jobs:
           make -j$(nproc --all) O=out \
             CC=clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-android-
+            CROSS_COMPILE=aarch64-linux-android- \
+            CROSS_COMPILE_ARM32=arm-linux-androideabi-
 
       - name: Copy kernel image to AnyKernel3
         run: |
@@ -61,3 +68,4 @@ jobs:
         with:
           name: Violet-Kernel-KSU-FINAL
           path: Violet-Kernel-KSU-FINAL.zip
+          
