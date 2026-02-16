@@ -15,52 +15,59 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev clang lld llvm zip curl wget gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
 
-      - name: 3. Setup Normal KernelSU
+      - name: 3. Setup Normal KernelSU & Hard Fixes
         working-directory: kernel
         run: |
           # Official KSU Setup
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
           
-          # SABSE BADA FIX: CPU Masking lines ko jad se mita do taaki sawaal hi na paida ho
+          # Force Delete the Bitmask loop lines from EVERY Kconfig file
           find . -type f -name "Kconfig*" -exec sed -i '/LITTLE_CPU_MASK/d' {} +
           find . -type f -name "Kconfig*" -exec sed -i '/BIG_CPU_MASK/d' {} +
           
-          # Force Configs
+          # Defconfig Manual Injection
           CONF_PATH=$(find arch/arm64/configs/ -name "*violet*" | head -n 1)
+          sed -i '/CONFIG_CC_STACKPROTECTOR_STRONG/d' "$CONF_PATH"
+          echo "CONFIG_CC_STACKPROTECTOR_NONE=y" >> "$CONF_PATH"
           echo "CONFIG_KSU=y" >> "$CONF_PATH"
-          echo "CONFIG_OVERRIDE_CPUMASK=y" >> "$CONF_PATH"
 
-      - name: 4. Set Toolchain (Proton Clang)
+      - name: 4. Set Toolchain (AOSP Clang 14)
         run: |
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
+          # Using a more stable compiler for 4.14 kernel
+          mkdir clang
+          cd clang
+          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master/clang-r450784d.tar.gz
+          tar -xf clang-r450784d.tar.gz
+          echo "$(pwd)/bin" >> $GITHUB_PATH
 
-      - name: 5. Build Kernel (THE ULTIMATE BYPASS)
+      - name: 5. Build Kernel (The Final Stand)
         working-directory: kernel
         run: |
-          export PATH=$(pwd)/../clang/bin:$PATH
           export ARCH=arm64
           export SUBARCH=arm64
           export KBUILD_BUILD_USER="Gemini"
           export KBUILD_BUILD_HOST="RyZeN-Builder"
           
-          # Step A: Defconfig dhoondhna
           CONF_NAME=$(ls arch/arm64/configs/ | grep violet | head -n 1)
           
-          # Step B: Brahamastra - Sabse naye sawaalon ko 'No' kar do bina pooche
+          # Step A: Base Config
           make O=out "$CONF_NAME"
           
-          # Is line se wo bitmask loop hamesha ke liye mar jayega
-          KCONFIG_ALLCONFIG=out/.config make O=out allnoconfig
+          # Step B: Kill all interactive prompts
+          yes "" | make O=out oldconfig
           make O=out olddefconfig
           
-          # Step C: Forced auto.conf generation
+          # Step C: Generate all necessary headers (Fixes auto.conf error)
           make O=out prepare
+          make O=out scripts
           
-          # Step D: Actual Build
+          # Step D: Actual Compilation
           make -j$(nproc --all) O=out \
                       CC=clang \
+                      CLANG_TRIPLE=aarch64-linux-gnu- \
                       CROSS_COMPILE=aarch64-linux-gnu- \
                       CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+                      LD=ld.lld \
                       AR=llvm-ar \
                       NM=llvm-nm \
                       OBJCOPY=llvm-objcopy \
@@ -69,17 +76,17 @@ jobs:
                       KCONFIG_NOSILENTUPDATE=1 \
                       KCFLAGS="-w"
 
-      - name: 6. Packaging AnyKernel3
+      - name: 6. Packaging
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3 AnyKernel3
           find kernel/out/arch/arm64/boot/ -name "Image.gz*" -exec cp {} AnyKernel3/ \;
           cd AnyKernel3
           sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
-          zip -r9 ../RyZeN-Violet-NormalKSU.zip *
+          zip -r9 ../RyZeN-Violet-Final.zip *
 
       - name: 7. Upload
         uses: actions/upload-artifact@v4
         with:
-          name: RyZeN-Violet-NormalKSU
-          path: RyZeN-Violet-NormalKSU.zip
+          name: RyZeN-Kernel-Fixed
+          path: RyZeN-Violet-Final.zip
           
