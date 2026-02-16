@@ -1,82 +1,63 @@
-name: Build RyZeN Kernel Final
+name: Build Violet Kernel (FINAL • KernelSU + AnyKernel3)
+
 on:
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-22.04
+
     steps:
-      - name: 1. Clone RyZeN Source
+      - name: Install dependencies
         run: |
-          git clone --depth=1 https://github.com/karthik558/MsM-4.14-RyZeN.git kernel
+          sudo apt update
+          sudo apt install -y git bc bison build-essential curl flex g++-multilib \
+            gcc-multilib gnupg gperf imagemagick libncurses5-dev \
+            libncurses-dev liblz4-tool libssl-dev libxml2 libxml2-utils \
+            lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev
 
-      - name: 2. Install Build Essentials
+      - name: Clone MiCode violet kernel source
         run: |
-          sudo apt-get update
-          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev zip curl wget gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi clang lld llvm
+          git clone --depth=1 https://github.com/MiCode/Xiaomi_Kernel_OpenSource -b violet-q-oss kernel
 
-      - name: 3. Setup Normal KernelSU & Hard Fixes
-        working-directory: kernel
+      - name: Add KernelSU support
         run: |
-          # KernelSU Setup
-          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
-          
-          # CPU Mask loop ko hamesha ke liye khatam karna
-          find . -type f -name "Kconfig*" -exec sed -i '/LITTLE_CPU_MASK/d' {} +
-          find . -type f -name "Kconfig*" -exec sed -i '/BIG_CPU_MASK/d' {} +
-          
-          # Stack Protector aur CPU features ko force disable karna jo build rokte hain
-          CONF_PATH=$(find arch/arm64/configs/ -name "*violet*" | head -n 1)
-          sed -i '/CONFIG_CC_STACKPROTECTOR_STRONG/d' "$CONF_PATH"
-          echo "CONFIG_CC_STACKPROTECTOR_NONE=y" >> "$CONF_PATH"
-          echo "CONFIG_KSU=y" >> "$CONF_PATH"
+          cd kernel
+          curl -LSs https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh | bash -
 
-      - name: 4. Build Kernel (Using Ubuntu GCC/Clang)
-        working-directory: kernel
+      - name: Clone Proton Clang toolchain
         run: |
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
+
+      - name: Clone AnyKernel3
+        run: |
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git anykernel
+
+      - name: Build Violet kernel
+        run: |
+          cd kernel
           export ARCH=arm64
           export SUBARCH=arm64
-          export KBUILD_BUILD_USER="Gemini"
-          export KBUILD_BUILD_HOST="RyZeN-Builder"
-          
-          CONF_NAME=$(ls arch/arm64/configs/ | grep violet | head -n 1)
-          
-          # Step A: Config setup
-          make O=out "$CONF_NAME"
-          
-          # Step B: Sabse bada bypass - Sawaalon ka loop band
-          yes "" | make O=out oldconfig
-          make O=out olddefconfig
-          
-          # Step C: Prepare headers
-          make O=out prepare
-          make O=out scripts
-          
-          # Step D: Main Build (Using standard GCC/Clang combo)
+          export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
+
+          make O=out vendor/violet_defconfig
+
           make -j$(nproc --all) O=out \
-                      CC=clang \
-                      LD=ld.lld \
-                      AR=llvm-ar \
-                      NM=llvm-nm \
-                      OBJCOPY=llvm-objcopy \
-                      OBJDUMP=llvm-objdump \
-                      STRIP=llvm-strip \
-                      CROSS_COMPILE=aarch64-linux-gnu- \
-                      CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-                      KCONFIG_NOSILENTUPDATE=1 \
-                      KCFLAGS="-w"
+            CC=clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-android-
 
-      - name: 5. Packaging AnyKernel3
+      - name: Copy kernel image to AnyKernel3
         run: |
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3 AnyKernel3
-          find kernel/out/arch/arm64/boot/ -name "Image.gz*" -exec cp {} AnyKernel3/ \;
-          cd AnyKernel3
-          sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
-          zip -r9 ../Violet-Kernel.zip *
+          cp kernel/out/arch/arm64/boot/Image.gz-dtb anykernel/
 
-      - name: 6. Upload
+      - name: Create flashable AnyKernel3 zip
+        run: |
+          cd anykernel
+          zip -r9 ../Violet-Kernel-KSU-FINAL.zip *
+
+      - name: Upload flashable zip artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Violet-Final-Kernel
-          path: Violet-Kernel.zip
-          
+          name: Violet-Kernel-KSU-FINAL
+          path: Violet-Kernel-KSU-FINAL.zip
