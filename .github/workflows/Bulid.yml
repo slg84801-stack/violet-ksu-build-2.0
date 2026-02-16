@@ -1,71 +1,66 @@
-name: Build Violet Kernel (FINAL • KernelSU + AnyKernel3)
+name: Build Violet Kernel with KernelSU
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y git bc bison build-essential curl flex g++-multilib \
-            gcc-multilib gnupg gperf imagemagick libncurses5-dev \
-            libncurses-dev liblz4-tool libssl-dev libxml2 libxml2-utils \
-            lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev \
-            binutils-aarch64-linux-gnu
+          sudo apt install -y git bc bison flex libssl-dev make libc6-dev libncurses5-dev \
+            crossbuild-essential-arm64 curl python3 unzip zip
 
-      - name: Clone MiCode violet kernel source
+      - name: Clone Kernel Source (VIOLENT Ten)
         run: |
-          git clone --depth=1 https://github.com/MiCode/Xiaomi_Kernel_OpenSource -b violet-q-oss kernel
+          git clone --depth=1 https://github.com/F1xy-kernels/VIOLENT_Kernel_Ten kernel
 
-      - name: Add KernelSU support
+      - name: Clone AnyKernel3
+        run: |
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3
+
+      - name: Setup KernelSU
         run: |
           cd kernel
           curl -LSs https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh | bash -
 
-      - name: Clone Proton Clang toolchain
+      - name: Download Proton Clang
         run: |
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
 
-      - name: Clone AnyKernel3
+      - name: Build Kernel
         run: |
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git anykernel
-
-      - name: Clean previous builds
-        run: |
-          cd kernel
-          make mrproper || true
-
-      - name: Build Violet kernel
-        run: |
-          cd kernel
           export ARCH=arm64
           export SUBARCH=arm64
-          export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
+          export KBUILD_BUILD_USER=violet
+          export KBUILD_BUILD_HOST=github
+          
+          PATH="${GITHUB_WORKSPACE}/clang/bin:$PATH"
 
-          make O=out vendor/violet_defconfig
+          mkdir -p out
+          cd kernel
 
-          make -j$(nproc --all) O=out \
+          make O=../out violet_defconfig
+
+          make -j$(nproc) O=../out \
             CC=clang \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-android- \
-            CROSS_COMPILE_ARM32=arm-linux-androideabi-
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi-
 
-      - name: Copy kernel image to AnyKernel3
+      - name: Prepare AnyKernel3 ZIP
         run: |
-          cp kernel/out/arch/arm64/boot/Image.gz-dtb anykernel/
+          cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
+          cd AnyKernel3
+          zip -r9 Violet-KSU-Android10.zip *
 
-      - name: Create flashable AnyKernel3 zip
-        run: |
-          cd anykernel
-          zip -r9 ../Violet-Kernel-KSU-FINAL.zip *
-
-      - name: Upload flashable zip artifact
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Violet-Kernel-KSU-FINAL
-          path: Violet-Kernel-KSU-FINAL.zip
-          
+          name: Violet-KSU-Android10
+          path: AnyKernel3/Violet-KSU-Android10.zip
