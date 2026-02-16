@@ -21,11 +21,19 @@ jobs:
           # Official KSU Setup
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
           
-          # Sabse bada fix: Sahi defconfig file dhoond kar edit karna
-          # Hum 'violet' naam ki har config file se problematic lines hatayenge
-          find arch/arm64/configs/ -name "*violet*" -exec sed -i '/LITTLE_CPU_MASK/d' {} +
-          find arch/arm64/configs/ -name "*violet*" -exec sed -i '/BIG_CPU_MASK/d' {} +
-          find arch/arm64/configs/ -name "*violet*" -exec echo "CONFIG_KSU=y" >> {} +
+          # Simplified Fix: Sahi defconfig file ko dhoond kar edit karna
+          # Hum direct path use karenge taaki 'find' ka lafda hi khatam ho jaye
+          CONF_PATH=$(find arch/arm64/configs/ -name "*violet*" | head -n 1)
+          echo "Found Config at: $CONF_PATH"
+          
+          if [ -f "$CONF_PATH" ]; then
+            sed -i '/LITTLE_CPU_MASK/d' "$CONF_PATH"
+            sed -i '/BIG_CPU_MASK/d' "$CONF_PATH"
+            echo "CONFIG_KSU=y" >> "$CONF_PATH"
+          else
+            echo "Config file not found, manual check needed!"
+            exit 1
+          fi
 
       - name: 4. Set Toolchain (Proton Clang)
         run: |
@@ -40,13 +48,13 @@ jobs:
           export KBUILD_BUILD_USER="Gemini"
           export KBUILD_BUILD_HOST="RyZeN-Builder"
           
-          # Sahi defconfig dhoond kar build shuru karna
-          CONF_FILE=$(ls arch/arm64/configs/ | grep violet | head -n 1)
-          echo "Using Config: $CONF_FILE"
+          # Dynamic config selection
+          CONF_NAME=$(ls arch/arm64/configs/ | grep violet | head -n 1)
+          echo "Building with: $CONF_NAME"
           
-          make O=out $CONF_FILE
+          make O=out "$CONF_NAME"
           
-          # Force set all new options to default (Fixes the Bitmask loop)
+          # Bitmask Loop Fix (The Ultimate Weapon)
           make O=out olddefconfig
           
           # Main Build
