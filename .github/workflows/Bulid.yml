@@ -21,20 +21,20 @@ jobs:
           # Official KSU Setup
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
           
-          # Sabse bada fix: Sahi defconfig dhoondhna aur problematic lines ko jad se khatam karna
-          CONF_PATH=$(find arch/arm64/configs/ -name "*violet*" | head -n 1)
-          echo "Found Config: $CONF_PATH"
+          # SABSE BADA FIX: CPU Masking lines ko jad se mita do taaki sawaal hi na paida ho
+          find . -type f -name "Kconfig*" -exec sed -i '/LITTLE_CPU_MASK/d' {} +
+          find . -type f -name "Kconfig*" -exec sed -i '/BIG_CPU_MASK/d' {} +
           
-          # Invalid CPU masks ko delete karo taaki loop na bane
-          sed -i '/LITTLE_CPU_MASK/d' "$CONF_PATH"
-          sed -i '/BIG_CPU_MASK/d' "$CONF_PATH"
+          # Force Configs
+          CONF_PATH=$(find arch/arm64/configs/ -name "*violet*" | head -n 1)
           echo "CONFIG_KSU=y" >> "$CONF_PATH"
+          echo "CONFIG_OVERRIDE_CPUMASK=y" >> "$CONF_PATH"
 
       - name: 4. Set Toolchain (Proton Clang)
         run: |
           git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
 
-      - name: 5. Build Kernel (Force Non-Interactive)
+      - name: 5. Build Kernel (THE ULTIMATE BYPASS)
         working-directory: kernel
         run: |
           export PATH=$(pwd)/../clang/bin:$PATH
@@ -43,19 +43,20 @@ jobs:
           export KBUILD_BUILD_USER="Gemini"
           export KBUILD_BUILD_HOST="RyZeN-Builder"
           
-          # Step A: Config generate karo
+          # Step A: Defconfig dhoondhna
           CONF_NAME=$(ls arch/arm64/configs/ | grep violet | head -n 1)
+          
+          # Step B: Brahamastra - Sabse naye sawaalon ko 'No' kar do bina pooche
           make O=out "$CONF_NAME"
           
-          # Step B: Nuclear Fix - Sawaalon ka loop hamesha ke liye band
-          # Ye command bina sawaal pooche naye features ko 'No' kar degi
+          # Is line se wo bitmask loop hamesha ke liye mar jayega
+          KCONFIG_ALLCONFIG=out/.config make O=out allnoconfig
           make O=out olddefconfig
           
-          # Step C: Zabardasti auto.conf generate karna (Fixes include/config/auto.conf error)
+          # Step C: Forced auto.conf generation
           make O=out prepare
-          make O=out scripts
           
-          # Step D: Main Build (Ab CC files dikhengi)
+          # Step D: Actual Build
           make -j$(nproc --all) O=out \
                       CC=clang \
                       CROSS_COMPILE=aarch64-linux-gnu- \
@@ -65,12 +66,12 @@ jobs:
                       OBJCOPY=llvm-objcopy \
                       OBJDUMP=llvm-objdump \
                       STRIP=llvm-strip \
-                      KCONFIG_NOSILENTUPDATE=1
+                      KCONFIG_NOSILENTUPDATE=1 \
+                      KCFLAGS="-w"
 
       - name: 6. Packaging AnyKernel3
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3 AnyKernel3
-          # Compiled image ko dhoond kar copy karo
           find kernel/out/arch/arm64/boot/ -name "Image.gz*" -exec cp {} AnyKernel3/ \;
           cd AnyKernel3
           sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
