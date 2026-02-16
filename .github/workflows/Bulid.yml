@@ -1,4 +1,4 @@
-name: Build RyZeN Kernel + KSU Next
+name: Build RyZeN Kernel + Normal KSU
 on:
   workflow_dispatch:
 
@@ -15,25 +15,24 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev clang lld llvm zip curl wget gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
 
-      - name: 3. Setup KernelSU Next
+      - name: 3. Setup Normal KernelSU
         working-directory: kernel
         run: |
-          # KernelSU Next Setup
-          git clone https://github.com/rifsxd/KernelSU-Next kernelsu_repo
-          cp -r kernelsu_repo/kernel drivers/kernelsu
+          # Normal KernelSU Setup (Official)
+          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
           
-          # Add to Build System
-          echo "obj-y += kernelsu/" >> drivers/Makefile
+          # Fix Defconfig: Invalid lines ko delete karna zaroori hai loop rokne ke liye
+          sed -i '/LITTLE_CPU_MASK/d' arch/arm64/configs/violet_defconfig
+          sed -i '/BIG_CPU_MASK/d' arch/arm64/configs/violet_defconfig
           
-          # Force Enable KSU in defconfig (RyZeN name fix)
+          # Force Enable KSU in defconfig
           echo "CONFIG_KSU=y" >> arch/arm64/configs/violet_defconfig
-          echo "CONFIG_KSU_NEXT=y" >> arch/arm64/configs/violet_defconfig
 
       - name: 4. Set Toolchain (Proton Clang)
         run: |
           git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
 
-      - name: 5. Build Kernel (The Final Fix)
+      - name: 5. Build Kernel (Zero-Interaction Fix)
         working-directory: kernel
         run: |
           export PATH=$(pwd)/../clang/bin:$PATH
@@ -42,17 +41,14 @@ jobs:
           export KBUILD_BUILD_USER="Gemini"
           export KBUILD_BUILD_HOST="RyZeN-Builder"
           
-          # Step A: Config generate karo
+          # Step A: Base config apply karo
           make O=out violet_defconfig
           
-          # Step B: Loop bypass karne ke liye "yes" use karo
-          yes "" | make O=out oldconfig
-          
-          # Step C: Baaki bache sawalon ko default set karke headers banao
+          # Step B: ALL-FIX - Naye options ko automatically default set karo
+          # Isse wo "Bitmask" wala loop hamesha ke liye khatam ho jayega
           make O=out olddefconfig
-          make O=out prepare
           
-          # Step D: Actual Build (Yahan se CC files shuru hongi)
+          # Step C: Compilation (CC lines yahan se shuru hongi)
           make -j$(nproc --all) O=out \
                       CC=clang \
                       CROSS_COMPILE=aarch64-linux-gnu- \
@@ -67,7 +63,7 @@ jobs:
       - name: 6. Packaging AnyKernel3
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3 AnyKernel3
-          # Find the image (RyZeN usually makes Image.gz-dtb)
+          # Image detection and copy
           if [ -f kernel/out/arch/arm64/boot/Image.gz-dtb ]; then
             cp kernel/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
           elif [ -f kernel/out/arch/arm64/boot/Image.gz ]; then
@@ -77,11 +73,11 @@ jobs:
           fi
           cd AnyKernel3
           sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
-          zip -r9 ../RyZeN-Violet-KSU-Next.zip *
+          zip -r9 ../RyZeN-Violet-NormalKSU.zip *
 
       - name: 7. Upload Flashable Zip
         uses: actions/upload-artifact@v4
         with:
-          name: RyZeN-Violet-KSU-Next
-          path: RyZeN-Violet-KSU-Next.zip
+          name: RyZeN-Violet-NormalKSU
+          path: RyZeN-Violet-NormalKSU.zip
           
